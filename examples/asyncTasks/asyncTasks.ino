@@ -34,13 +34,6 @@ void calculateFactorial(int n){
 void setup(){
     // Start the serial communication
     Serial.begin(115200);
-    
-    // Create a new task with no parameters, the task is a lambda function
-    // with no return value (void)
-    AsyncTask<> task([](){
-        Serial.println("Hello from a task!");
-    });
-    task();
 
     // Initialize random seed
     randomSeed(analogRead(A0));
@@ -59,7 +52,7 @@ void loop(){
 
         // Beaware that the `i` value is copied and stored internally as a tuple,
         // so doing it with lambda function with capture by reference will not work:
-        // AsyncTask<int> task([&](int i){
+        // AsyncTask<> task([&](){
         //     // ... rest of the code
         // });
         // The `i` value might be changed or deleted or even simply unavailable
