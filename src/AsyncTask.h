@@ -53,7 +53,7 @@ struct TaskParams{
  * This is a simple struct that stores the handle, and is used to delete the task
  * after it's done.
 */
-typedef struct _TaskData{
+struct _TaskData{
     TaskHandle_t _handle;
 
     _TaskData(TaskHandle_t handle = NULL):

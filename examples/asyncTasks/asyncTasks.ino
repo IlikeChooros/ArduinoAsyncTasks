@@ -7,7 +7,8 @@ Has more detailed comments about the library implementation and how to use it
 
 */
 
-// Include the ArduinoAsyncTask library
+// Include the ArduinoAsyncTask library, with Arduino board you might need to add:
+// #include <Arduino_FreeRTOS.h>
 #include <ArduinoAsyncTasks.h>
 
 // The task, must be a void function
@@ -66,8 +67,7 @@ void loop(){
         // since it's only a reference to the original value in the loop, and not a copy.
         // So, always use a copy of the value, like in the example below
 
-
-        // Set the callback function with `.then(...)` and start the task with `.run(...)`
+        // Execute the task with the parameter `i`
         // The `i` value is copied and stored internally as a tuple,
         // so it will be available when the task is executed
         task(i);

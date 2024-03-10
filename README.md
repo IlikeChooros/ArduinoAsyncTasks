@@ -3,6 +3,18 @@
 ArduinoAsyncTasks is a simple and lightweight library for running asynchronous tasks on Arduino. It supports lambda functions and is easy to use. This library is particularly useful for managing multiple tasks or processes that need to run concurrently.
 Best for multicores boards like ESP32 or Arduino Due.
 
+The library does not support `AVR` boards, such as `Arduino Uno`, `Nano` and `Mega`, because theses microcontrollers do not fully support the C++ Standard Library due to their limited resources. This means that the `<functional>` library is not available on these boards.
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [More Information](#more-information)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
 
 - Run tasks asynchronously
@@ -68,13 +80,13 @@ The library uses the [FreeRTOS](https://docs.espressif.com/projects/esp-idf/en/l
 
 "Error: Include FreeRTOS.h before including this file, for troubleshooting see the README file on Github."
 
-If you see this error, it means that you need to install the `FreeRTOS` library. You can do this by navigating to Tools > Manage Libraries and searching for `FreeRTOS`. Then, click Install.
+If you see this error, it means that you need to install the `FreeRTOS` library (known as `Arduino_FreeRTOS`). You can do this by navigating to Tools > Manage Libraries and searching for `FreeRTOS`. Then, click Install.
 
-Then, you need to include the `FreeRTOS.h` file before including the `ArduinoAsyncTasks.h` file in your sketch.
+Then, you need to include the `Arduino_FreeRTOS.h` file before including the `ArduinoAsyncTasks.h` file in your sketch.
 
 ```cpp
 
-#include <FreeRTOS.h>
+#include <Arduino_FreeRTOS.h>
 #include <ArduinoAsyncTasks.h>
 
 ```
@@ -83,3 +95,7 @@ Then, you need to include the `FreeRTOS.h` file before including the `ArduinoAsy
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request or open an issue on the [GitHub repository](https://github.com/IlikeChooros/ArduinoAsyncTasks).
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/IlikeChooros/ArduinoAsyncTasks/blob/main/LICENSE)
