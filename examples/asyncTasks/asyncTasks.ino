@@ -56,6 +56,17 @@ void loop(){
         // Create a new task with an int as parameter
         AsyncTask<int> task(calculateFactorial);
 
+        // Beaware that the `i` value is copied and stored internally as a tuple,
+        // so doing it with lambda function with capture by reference will not work:
+        // AsyncTask<int> task([&](int i){
+        //     // ... rest of the code
+        // });
+        // The `i` value might be changed or deleted or even simply unavailable
+        // (might be on different core - different stack) before the task is executed,
+        // since it's only a reference to the original value in the loop, and not a copy.
+        // So, always use a copy of the value, like in the example below
+
+
         // Set the callback function with `.then(...)` and start the task with `.run(...)`
         // The `i` value is copied and stored internally as a tuple,
         // so it will be available when the task is executed
