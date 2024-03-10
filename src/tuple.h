@@ -1,5 +1,12 @@
 #pragma once
 
+/*
+
+A complete implementation of the `apply` function for tuples.
+This implementation is based on the one provided by the C++14 standard library.
+
+*/
+
 #include <tuple>
 
 #include "namespaces.h"

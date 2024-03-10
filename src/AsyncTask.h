@@ -6,7 +6,7 @@
 #include <functional>
 #include <tuple>
 
-// apply function to tuple
+// `apply` implementation for tuples
 #include "tuple.h"
 
 BEGIN_TASKS_NAMESPACE
@@ -46,171 +46,108 @@ struct TaskParams{
     
 };
 
+/**
+ * Task data, used to store the task handle.
+ * 
+ * To pass the `TaskHandle_t` to the task function, we need to store it in the heap.
+ * This is a simple struct that stores the handle, and is used to delete the task
+ * after it's done.
+*/
+typedef struct _TaskData{
+    TaskHandle_t _handle;
 
-template <typename _Func>
+    _TaskData(TaskHandle_t handle = NULL):
+        _handle(handle) {}
+};
+
+
+template <typename... _ArgTypes>
 class AsyncTask;
 
+/**
+ * @brief Delete the task and free the memory
+*/
+template <typename... _ArgTypes>
+void _deleteTask(AsyncTask<_ArgTypes...>* p){
+    TaskHandle_t handle = NULL;
 
-template <typename _Res, typename... _ArgTypes>
-static inline void _taskWrapper(void *param){
-    // Get the task from the parameter and cast it to the correct type.
-    // This is probably the only way to do this, since we can't use lambdas
-    // as task functions, and we can't use static_cast with lambdas.
-    auto task = static_cast<AsyncTask<_Res(_ArgTypes...)>*>(param);
-    
-    if (!task){
-        return;
+    if (p->_data && p->_data->_handle != NULL){
+        handle = p->_data->_handle;
     }
-    // Run the task and the callback
-    task->_runTasks();
-    
-    // Delete the task f
-    if (task->_handle != nullptr){
-        vTaskDelete(task->_handle);
+
+    delete p->_data;
+    delete p;
+
+    if (handle){
+        vTaskDelete(handle);
     }
 }
 
 /**
- * Base class for AsyncTask, used to store the task handle
+ * Base class for AsyncTask, used to store parameters and the task data
 */
 class BaseAsyncTask{
   public:
-    BaseAsyncTask(): _handle(NULL) {}
+    BaseAsyncTask(): _data(nullptr), _params() {}
+    BaseAsyncTask(const TaskParams& params): _data(nullptr), _params(params) {}
     virtual ~BaseAsyncTask() = default;
 
-    TaskHandle_t _handle;    
+  protected:
+    /**
+     * @brief Wrapper for the task function, casts the task, runs it and deletes it
+    */
+    template <typename _Res, typename... _ArgTypes>
+    static void _taskWrapper(void *param){
+        // Get the task from the parameter and cast it to the correct type.
+        // This is probably the only way to do this, since we can't use lambdas
+        // as task functions, and we can't use static_cast with lambdas.
+        // The task also must be allocated on the heap, since there's a possibility
+        // that the task will be deleted before it's done if it was on stack memory.
+        auto task = static_cast<AsyncTask<_ArgTypes...>*>(param);
+        
+        if (!task){
+            return;
+        }
+
+        // Run the task on the current thread
+        task->_runTask();
+        
+        // Delete the task after it's done, must be called after the task is done,
+        // also terminates the FreeRTOS task
+        _deleteTask<_ArgTypes...>(task);
+    }
+
+    template <typename... _ArgTypes>
+    friend void _deleteTask(AsyncTask<_ArgTypes...>* p);
+
+    _TaskData* _data;
+    TaskParams _params;
 };
+
 
 /**
-  * AsyncTask class, used to run tasks asynchronously
-  * @tparam _Res Return type of the task function
-  * @tparam _ArgTypes Argument types of the task function
+ * ## AsyncTask
+ * 
+ * A class that represents a task that can be run in the background.
+ * 
 */
-template <typename _Res, typename... _ArgTypes>
-class AsyncTask<_Res(_ArgTypes...)> : public BaseAsyncTask{
-
-    using _TaskType = std::function<_Res(_ArgTypes...)>;
-    using _CallbackType = std::function<void(_Res)>;
-
-    TaskParams _params;
-    _TaskType _task;
-    _CallbackType _callback;
-    std::tuple<_ArgTypes...> _args;
-
-    public:
-    AsyncTask() = default;
-    AsyncTask(_TaskType task, _CallbackType callback = nullptr);
-    AsyncTask(const TaskParams& params);
-    AsyncTask(
-      const TaskParams& params, 
-      _TaskType task, 
-      _CallbackType callback = nullptr
-    );
-
-    /**
-     * @brief Set the task parameters
-    */
-    inline AsyncTask& setParams(const TaskParams& params){
-        _params = params;
-        return *this;
-    }
-
-    /**
-     * @brief Set the task function
-    */
-    inline AsyncTask& setTask(_TaskType task){
-        _task = task;
-        return *this;
-    }
-
-    /**
-     * @brief Set the callback function, called after the task function
-     * @param callback Callback function, takes the return value of the task function
-    */
-    inline AsyncTask& then(_CallbackType callback){
-        _callback = callback;
-        return *this;
-    }
-
-    /**
-     * @brief Run the task asynchronously
-     * @param args Arguments for the task function
-    */
-    inline void run(_ArgTypes... args){
-      _args = std::make_tuple(args...);
-      if (_task){
-          if(_params.usePinnedCore){
-            xTaskCreatePinnedToCore(
-                _taskWrapper<_Res, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
-                this, _params.priority, &_handle, _params.core
-            );
-            return;
-          }
-          xTaskCreate(
-              _taskWrapper<_Res, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
-              this, _params.priority, &_handle
-          );
-      }
-    }
-
-    /**
-     * @brief Run the task asynchronously, same as `run(...)`
-    */
-    inline void operator()(_ArgTypes... args){
-        run(args...);
-    }
-
-    /**
-     * @brief Run the task and the callback, used internally
-    */
-    inline void _runTasks(){
-      if (_task){
-          _Res res = apply(_task, _args);
-          if (_callback){
-            _callback(res);
-          }
-      }
-    }
-};
-
-
-template <typename _Res, typename... _ArgTypes>
-AsyncTask<_Res(_ArgTypes...)>::AsyncTask(_TaskType task, _CallbackType callback): 
-    AsyncTask(TaskParams(), task, callback) {}
-
-template <typename _Res, typename... _ArgTypes>
-AsyncTask<_Res(_ArgTypes...)>::AsyncTask(const TaskParams& params) : 
-    AsyncTask(params, nullptr, nullptr) {}
-
-template <typename _Res, typename... _ArgTypes>
-AsyncTask<_Res(_ArgTypes...)>::AsyncTask(
-  const TaskParams& params, 
-  _TaskType task, 
-  _CallbackType callback
-) : _params(params), _task(task), _callback(callback) {}
-
-
-// specialization for void return type, since we can't call the callback with `void`
 template <typename... _ArgTypes>
-class AsyncTask<void(_ArgTypes...)> : public BaseAsyncTask{
+class AsyncTask : public BaseAsyncTask{
 
     using _TaskType = std::function<void(_ArgTypes...)>;
 
-    TaskParams _params;
     _TaskType _task;
-    std::function<void()> _callback;
     std::tuple<_ArgTypes...> _args;
 
-
-    public:
+public:
     AsyncTask() = default;
-    AsyncTask(_TaskType task, std::function<void()> callback = nullptr);
+    AsyncTask(_TaskType task);
     AsyncTask(const TaskParams& params);
     AsyncTask(
       const TaskParams& params, 
-      _TaskType task, 
-      std::function<void()> callback = nullptr
+      _TaskType task
     );
+    AsyncTask(const AsyncTask& other);
 
     inline AsyncTask& setParams(const TaskParams& params){
         _params = params;
@@ -222,160 +159,124 @@ class AsyncTask<void(_ArgTypes...)> : public BaseAsyncTask{
         return *this;
     }
 
-    inline AsyncTask& then(std::function<void()> callback){
-        _callback = callback;
-        return *this;
-    }
-
+    /**
+     * @brief Run the task in the background
+    */
     inline void run(_ArgTypes... args){
       _args = std::make_tuple(args...);
       if (_task){
-        if (_params.usePinnedCore){
-            xTaskCreatePinnedToCore(
-                _taskWrapper<void, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
-                this, _params.priority, &_handle, _params.core
-            );
-            return;
-        }
-        xTaskCreate(
-            _taskWrapper<void, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
-            this, _params.priority, &_handle
-        );
-      }
-    }
-
-    inline void operator()(_ArgTypes... args){
-        run(args...);
-    }
-
-    inline void _runTasks(){
-      if (_task){
-          apply(_task, _args);
-          if (_callback){
-            _callback();
-          }
-      }
-    }
-};
-
-template <typename... _ArgTypes>
-AsyncTask<void(_ArgTypes...)>::AsyncTask(_TaskType task, std::function<void()> callback): 
-    AsyncTask(TaskParams(), task, callback) {}
-
-template <typename... _ArgTypes>
-AsyncTask<void(_ArgTypes...)>::AsyncTask(const TaskParams& params) : 
-    AsyncTask(params, nullptr, nullptr) {}
-
-template <typename... _ArgTypes>
-AsyncTask<void(_ArgTypes...)>::AsyncTask(
-  const TaskParams& params, 
-  _TaskType task,
-  std::function<void()> callback
-) : _params(params), _task(task), _callback(callback) {}
-
-
-// specialization for _Res return type and no arguments
-template <typename _Res>
-class AsyncTask<_Res()> : public BaseAsyncTask{
-
-    using _TaskType = std::function<_Res()>;
-    using _CallbackType = std::function<void(_Res)>;
-
-    TaskParams _params;
-    _TaskType _task;
-    _CallbackType _callback;
-
-    public:
-    AsyncTask() = default;
-    AsyncTask(_TaskType task, _CallbackType callback = nullptr);
-    AsyncTask(const TaskParams& params);
-    AsyncTask(const TaskParams& params, _TaskType task, _CallbackType callback = nullptr);
-
-    AsyncTask& setParams(const TaskParams& params){
-        _params = params;
-        return *this;
-    }
-
-    AsyncTask& setTask(_TaskType task){
-        _task = task;
-        return *this;
-    }
-
-    AsyncTask& then(_CallbackType callback){
-        _callback = callback;
-        return *this;
-    }
-
-    void run(){
-        if (_task){
-            if(_params.usePinnedCore){
+            _data = new _TaskData();
+            if (_params.usePinnedCore){
                 xTaskCreatePinnedToCore(
-                    _taskWrapper<_Res>, _params.name.c_str(), _params.stackSize,
-                    this, _params.priority, &_handle, _params.core
+                    _taskWrapper<void, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
+                    copy(), _params.priority, &_data->_handle, _params.core
                 );
                 return;
             }
             xTaskCreate(
-                _taskWrapper<_Res>, _params.name.c_str(), _params.stackSize,
-                this, _params.priority, &_handle
+                _taskWrapper<void, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
+                copy(), _params.priority, &_data->_handle
             );
-        }
+      }
     }
 
-    void _runTasks(){
-        if (_task){
-            _Res res = _task();
-            if (_callback){
-                _callback(res);
-            }
-        }
+    /**
+     * @brief Same as `run(...)`, but with operator overloading
+    */
+    inline void operator()(_ArgTypes... args){
+        run(args...);
     }
 
-    void operator()(){
-        run();
+    /**
+     * @brief Run the task in the current thread, used internally
+    */
+    inline void _runTask(){
+      if (_task){
+          apply(_task, _args);
+      }
+    }
+
+    AsyncTask& operator=(const AsyncTask& other){
+        _params = other._params;
+        _task = other._task;
+        _args = other._args;
+        _data = other._data;
+        return *this;
+    }
+
+    /**
+     * @brief Copy the task to the heap, used internally
+    */
+    AsyncTask* copy() const{
+        return new AsyncTask(*this);
     }
 };
 
-template <typename _Res>
-AsyncTask<_Res()>::AsyncTask(_TaskType task, _CallbackType callback): 
-    AsyncTask(TaskParams(), task, callback) {}
+template <typename... _ArgTypes>
+AsyncTask<_ArgTypes...>::AsyncTask(_TaskType task): 
+    AsyncTask(TaskParams(), task) {}
 
-template <typename _Res>
-AsyncTask<_Res()>::AsyncTask(const TaskParams& params) : 
-    AsyncTask(params, nullptr, nullptr) {}
+template <typename... _ArgTypes>
+AsyncTask<_ArgTypes...>::AsyncTask(const TaskParams& params) : 
+    AsyncTask(params, nullptr) {}
 
-template <typename _Res>
-AsyncTask<_Res()>::AsyncTask(
+template <typename... _ArgTypes>
+AsyncTask<_ArgTypes...>::AsyncTask(
   const TaskParams& params, 
-  _TaskType task, 
-  _CallbackType callback
-) : _params(params), _task(task), _callback(callback) {}
+  _TaskType task
+) : BaseAsyncTask(params), _task(task) {}
 
+template <typename... _ArgTypes>
+AsyncTask<_ArgTypes...>::AsyncTask(const AsyncTask& other){
+    *this = other;
+}
 
-// specialization for void return type and no arguments
+/**
+ * ## AsyncTask
+ * 
+ * A class that represents a task that can be run in the background.
+ * 
+ * This is a specialization of the AsyncTask class, used when the task
+ * doesn't take any arguments.
+*/
 template <>
-class AsyncTask<void()> : public BaseAsyncTask{
+class AsyncTask<> : public BaseAsyncTask{
 
     using _TaskType = std::function<void()>;
 
-    TaskParams _params;
     _TaskType _task;
-    _TaskType _callback;
 
-    public:
-    AsyncTask() = default;
-    AsyncTask(_TaskType task, _TaskType callback = nullptr);
+public:
+    AsyncTask();
+    AsyncTask(_TaskType task);
     AsyncTask(const TaskParams& params);
-    AsyncTask(const TaskParams& params, _TaskType task, _TaskType callback = nullptr);
+    AsyncTask(const TaskParams& params, _TaskType task);
+    AsyncTask(const AsyncTask& other);
 
     AsyncTask& setParams(const TaskParams& params);
     AsyncTask& setTask(_TaskType task);
-    AsyncTask& then(_TaskType callback);
 
+    /**
+     * @brief Run the task in the background
+    */
     void run();
-    void _runTasks();
 
+    /**
+     * @brief Same as `run()`, but with operator overloading
+    */
     void operator()();
+
+    /**
+     * @brief Run the task in the current thread, used internally
+    */
+    void _runTask();    
+
+    AsyncTask& operator=(const AsyncTask& other);
+
+    /**
+     * @brief Copy the task to the heap, used internally
+    */
+    AsyncTask* copy() const;
 };
 
 

@@ -4,57 +4,71 @@ BEGIN_TASKS_NAMESPACE
 
 // void AsyncTask specializations with no parameters
 
-AsyncTask<void()>::AsyncTask(std::function<void()> task, std::function<void()> callback):
-    AsyncTask(TaskParams(), task, callback) {}
+using _TaskType = std::function<void()>;
 
-AsyncTask<void()>::AsyncTask(const TaskParams& params):
-    AsyncTask(params, nullptr, nullptr) {}
+AsyncTask<>::AsyncTask():
+    AsyncTask(TaskParams(), nullptr) {}
 
-AsyncTask<void()>::AsyncTask(const TaskParams& params, std::function<void()> task, std::function<void()> callback):
-    _params(params), _task(task), _callback(callback) {}
+AsyncTask<>::AsyncTask(_TaskType task):
+    AsyncTask(TaskParams(), task) {}
 
-AsyncTask<void()>& AsyncTask<void()>::setParams(const TaskParams& params){
+AsyncTask<>::AsyncTask(const TaskParams& params):
+    AsyncTask(params, nullptr) {}
+
+AsyncTask<>::AsyncTask(const TaskParams& params, _TaskType task):
+    BaseAsyncTask(params), _task(task) {}
+
+AsyncTask<>::AsyncTask(const AsyncTask& other){
+    *this = other;
+}
+
+AsyncTask<>& AsyncTask<>::setParams(const TaskParams& params){
     _params = params;
     return *this;
 }
 
-AsyncTask<void()>& AsyncTask<void()>::setTask(std::function<void()> task){
+AsyncTask<>& AsyncTask<>::setTask(_TaskType task){
     _task = task;
     return *this;
 }
 
-AsyncTask<void()>& AsyncTask<void()>::then(std::function<void()> callback){
-    _callback = callback;
-    return *this;
-}
 
-void AsyncTask<void()>::run(){
+void AsyncTask<>::run(){
     if (_task){
-        _task();
-        if (_callback){
-            _callback();
-        }
-    }   
-}
-
-void AsyncTask<void()>::operator()(){
-    run();
-}
-
-void AsyncTask<void()>::_runTasks(){
-    if (_task){
-        if (_params.usePinnedCore){
+        _data = new _TaskData();
+        if(_params.usePinnedCore){
             xTaskCreatePinnedToCore(
                 _taskWrapper<void>, _params.name.c_str(), _params.stackSize,
-                this, _params.priority, &_handle, _params.core
+                copy(), _params.priority, &_data->_handle, _params.core
             );
             return;
         }
         xTaskCreate(
             _taskWrapper<void>, _params.name.c_str(), _params.stackSize,
-            this, _params.priority, &_handle
+            copy(), _params.priority, &_data->_handle
         );
     }
+}
+
+void AsyncTask<>::operator()(){
+    run();
+}
+
+void AsyncTask<>::_runTask(){
+    if(_task){
+        _task();
+    }
+}
+
+AsyncTask<>& AsyncTask<>::operator=(const AsyncTask<>& other){
+    _params = other._params;
+    _task = other._task;
+    _data = other._data;
+    return *this;
+}
+
+AsyncTask<>* AsyncTask<>::copy() const{
+    return new AsyncTask<>(*this);
 }
 
 

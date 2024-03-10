@@ -21,12 +21,13 @@ void loop(){
     delay(1000);
 
     // Create a new task with a return value and parameters
-    AsyncTask<int(int, int)> task([](int a, int b){
+    AsyncTask<int, int> task([](int a, int b){
         // This is the task function
         // It will be called in a separate thread
         // You can do any work here
-        // For this example, we will just add two numbers and return the result
-        return a + b;
+        // For this example, we will just add two numbers and print the result
+        int result = a + b;
+        Serial.println("The result is: " + String(result));
     });
 
     // Set the custom parameters
@@ -39,9 +40,7 @@ void loop(){
     params.core = 1;
 
     // Set the custom parameters with `setParams(...)` and callback function with `.then(...)`
-    task.setParams(params).then([](int result){
-        Serial.println("Result: " + String(result));
-    });
+    task.setParams(params);
 
     // Start the task with the parameters
     task(9, 10);
