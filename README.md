@@ -3,7 +3,7 @@
 ArduinoAsyncTasks is a simple and lightweight library for running asynchronous tasks on Arduino. It supports lambda functions and is easy to use. This library is particularly useful for managing multiple tasks or processes that need to run concurrently.
 Best for multicores boards like ESP32 or Arduino Due.
 
-The library does not support `AVR` boards, such as `Arduino Uno`, `Nano` and `Mega`, because theses microcontrollers do not fully support the C++ Standard Library due to their limited resources. This means that the `<functional>` library is not available on these boards.
+The library does not support `AVR` boards, such as `Arduino Uno`, `Nano` and `Mega`, because theses microcontrollers do not fully support the C++ Standard Library due to their limited resources.
 
 ## Table of Contents
 
