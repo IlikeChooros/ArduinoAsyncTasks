@@ -5,6 +5,7 @@
 #include "namespaces.h"
 #include <functional>
 #include <tuple>
+#include <memory>
 
 // `apply` implementation for tuples
 #include "tuple.h"
@@ -44,20 +45,76 @@ struct TaskParams{
     ): stackSize(stackSize), priority(priority), name(name),
     usePinnedCore(usePinnedCore), core(core) {}
     
+    TaskParams(const TaskParams& other){
+        *this = other;
+    }
+
+    TaskParams& operator=(const TaskParams& other){
+        stackSize = other.stackSize;
+        priority = other.priority;
+        name = other.name;
+        usePinnedCore = other.usePinnedCore;
+        core = other.core;
+        return *this;
+    }
+
+    TaskParams& setStackSize(int size){
+        stackSize = size;
+        return *this;
+    }
+
+    TaskParams& setPriority(int p){
+        priority = p;
+        return *this;
+    }
+
+    TaskParams& setName(const std::string& n){
+        name = n;
+        return *this;
+    }
+
+    TaskParams& setUsePinnedCore(bool use){
+        usePinnedCore = use;
+        return *this;
+    }
+
+    TaskParams& setCore(int c){
+        core = c;
+        return *this;
+    }
+};
+
+
+/**
+ * ## TaskSignal
+ * 
+ * An enum class that represents the signals that can be sent to a task.
+*/
+enum class _TaskSignal{
+    STOP = 1,
+    PAUSE = 2,
+    RUN = 3
 };
 
 /**
  * Task data, used to store the task handle.
  * 
  * To pass the `TaskHandle_t` to the task function, we need to store it in the heap.
- * This is a simple struct that stores the handle, and is used to delete the task
- * after it's done.
+ * Also, we need to store the signal that was sent to the task, and a mutex to protect
+ * the signal
 */
 struct _TaskData{
     TaskHandle_t _handle;
+    _TaskSignal _signal;
+    SemaphoreHandle_t _mutex;
 
-    _TaskData(TaskHandle_t handle = NULL):
-        _handle(handle) {}
+    _TaskData(TaskHandle_t handle = NULL, _TaskSignal signal = _TaskSignal::RUN):
+        _handle(handle), _signal(signal), _mutex(xSemaphoreCreateMutex()) {}
+    ~_TaskData(){
+        if (_mutex){
+            vSemaphoreDelete(_mutex);
+        }
+    }
 };
 
 
@@ -75,7 +132,6 @@ void _deleteTask(AsyncTask<_ArgTypes...>* p){
         handle = p->_data->_handle;
     }
 
-    delete p->_data;
     delete p;
 
     if (handle){
@@ -88,9 +144,24 @@ void _deleteTask(AsyncTask<_ArgTypes...>* p){
 */
 class BaseAsyncTask{
   public:
-    BaseAsyncTask(): _data(nullptr), _params() {}
-    BaseAsyncTask(const TaskParams& params): _data(nullptr), _params(params) {}
+    BaseAsyncTask() = default;
+    BaseAsyncTask(const TaskParams& params): _params(params) {}
     virtual ~BaseAsyncTask() = default;
+
+    /**
+     * @brief Stop the task, this will send a signal to the task to stop it, doesn't work immediately
+    */
+    void stop();
+
+    /**
+     * @brief Pause the task
+    */
+    void pause();
+
+    /**
+     * @brief Resume the task
+    */
+    void resume();
 
   protected:
     /**
@@ -109,6 +180,19 @@ class BaseAsyncTask{
             return;
         }
 
+        // First, check if the task was stopped, using a mutex
+        if (xSemaphoreTake(task->_data->_mutex, portMAX_DELAY) == pdTRUE){
+            // Must store the mutex in a local variable, since the task can be deleted
+            SemaphoreHandle_t mutex = task->_data->_mutex;
+            // If the task was stopped, delete it and return
+            if (task->_data->_signal == _TaskSignal::STOP){
+                _deleteTask<_ArgTypes...>(task);
+                xSemaphoreGive(mutex);
+                return;
+            }
+            xSemaphoreGive(mutex);
+        }
+
         // Run the task on the current thread
         task->_runTask();
         
@@ -120,7 +204,8 @@ class BaseAsyncTask{
     template <typename... _ArgTypes>
     friend void _deleteTask(AsyncTask<_ArgTypes...>* p);
 
-    _TaskData* _data;
+
+    std::shared_ptr<_TaskData> _data;
     TaskParams _params;
 };
 
@@ -163,9 +248,13 @@ public:
      * @brief Run the task in the background
     */
     inline void run(_ArgTypes... args){
-      _args = std::make_tuple(args...);
-      if (_task){
-            _data = new _TaskData();
+        // If the task is already running, don't run it again
+        if (_data){
+            return;
+        }
+        _args = std::make_tuple(args...);
+        if (_task){
+            _data = std::make_shared<_TaskData>();
             if (_params.usePinnedCore){
                 xTaskCreatePinnedToCore(
                     _taskWrapper<void, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
@@ -177,9 +266,9 @@ public:
                 _taskWrapper<void, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
                 copy(), _params.priority, &_data->_handle
             );
-      }
+        }
     }
-
+    
     /**
      * @brief Same as `run(...)`, but with operator overloading
     */

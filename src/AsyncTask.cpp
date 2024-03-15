@@ -6,6 +6,30 @@ BEGIN_TASKS_NAMESPACE
 
 using _TaskType = std::function<void()>;
 
+
+void BaseAsyncTask::resume(){
+    if(_data && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
+        vTaskResume(_data->_handle);
+        xSemaphoreGive(_data->_mutex);
+    }
+}
+
+void BaseAsyncTask::stop(){
+    // The task can be deleted only in the `taskWrapper` function, so we must
+    // send a signal to the task to stop it, and then delete it in the `taskWrapper`
+    if (_data && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
+        _data->_signal = _TaskSignal::STOP;
+        xSemaphoreGive(_data->_mutex);
+    }
+}
+
+void BaseAsyncTask::pause(){
+    if (_data && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
+        vTaskSuspend(_data->_handle);
+        xSemaphoreGive(_data->_mutex);
+    }
+}
+
 AsyncTask<>::AsyncTask():
     AsyncTask(TaskParams(), nullptr) {}
 
@@ -34,8 +58,12 @@ AsyncTask<>& AsyncTask<>::setTask(_TaskType task){
 
 
 void AsyncTask<>::run(){
+    // If the task is already running, return
+    if (_data){
+        return;
+    }
     if (_task){
-        _data = new _TaskData();
+        _data = std::make_shared<_TaskData>();
         if(_params.usePinnedCore){
             xTaskCreatePinnedToCore(
                 _taskWrapper<void>, _params.name.c_str(), _params.stackSize,
