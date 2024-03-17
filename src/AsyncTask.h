@@ -93,7 +93,7 @@ struct TaskParams{
 enum class _TaskSignal{
     STOP = 1,
     PAUSE = 2,
-    RUN = 3
+    RUN = 3,
 };
 
 /**
@@ -123,20 +123,26 @@ class AsyncTask;
 
 /**
  * @brief Delete the task and free the memory
+ * @param p The task to be deleted
+ * @param kill If true, the task will be killed, otherwise it will be left running
+ * and returns the handle
 */
 template <typename... _ArgTypes>
-void _deleteTask(AsyncTask<_ArgTypes...>* p){
+TaskHandle_t _deleteTask(AsyncTask<_ArgTypes...>* p, bool kill){
     TaskHandle_t handle = NULL;
 
-    if (p->_data && p->_data->_handle != NULL){
+    if (p->_data){
         handle = p->_data->_handle;
     }
 
+    delete p->_data;
     delete p;
 
-    if (handle){
+    if (handle && kill){
         vTaskDelete(handle);
     }
+
+    return handle;
 }
 
 /**
@@ -144,8 +150,8 @@ void _deleteTask(AsyncTask<_ArgTypes...>* p){
 */
 class BaseAsyncTask{
   public:
-    BaseAsyncTask() = default;
-    BaseAsyncTask(const TaskParams& params): _params(params) {}
+    BaseAsyncTask(const TaskParams& params): _params(params), _data(nullptr) {}
+    BaseAsyncTask(): BaseAsyncTask(TaskParams()) {}
     virtual ~BaseAsyncTask() = default;
 
     /**
@@ -154,12 +160,12 @@ class BaseAsyncTask{
     void stop();
 
     /**
-     * @brief Pause the task
+     * @brief Pause the task, you can resume the task using `resume()`
     */
     void pause();
 
     /**
-     * @brief Resume the task
+     * @brief Resume the task, after it was paused
     */
     void resume();
 
@@ -186,8 +192,11 @@ class BaseAsyncTask{
             SemaphoreHandle_t mutex = task->_data->_mutex;
             // If the task was stopped, delete it and return
             if (task->_data->_signal == _TaskSignal::STOP){
-                _deleteTask<_ArgTypes...>(task);
+                TaskHandle_t handle = _deleteTask<_ArgTypes...>(task, false);
                 xSemaphoreGive(mutex);
+                if (handle){
+                    vTaskDelete(handle);
+                }
                 return;
             }
             xSemaphoreGive(mutex);
@@ -198,14 +207,14 @@ class BaseAsyncTask{
         
         // Delete the task after it's done, must be called after the task is done,
         // also terminates the FreeRTOS task
-        _deleteTask<_ArgTypes...>(task);
+        _deleteTask<_ArgTypes...>(task, true);
     }
 
     template <typename... _ArgTypes>
-    friend void _deleteTask(AsyncTask<_ArgTypes...>* p);
+    friend TaskHandle_t _deleteTask(AsyncTask<_ArgTypes...>* p, bool kill);
 
 
-    std::shared_ptr<_TaskData> _data;
+    _TaskData *_data;
     TaskParams _params;
 };
 
@@ -214,6 +223,7 @@ class BaseAsyncTask{
  * ## AsyncTask
  * 
  * A class that represents a task that can be run in the background.
+ * The task is a one-time task, it can't be run multiple times.
  * 
 */
 template <typename... _ArgTypes>
@@ -254,7 +264,7 @@ public:
         }
         _args = std::make_tuple(args...);
         if (_task){
-            _data = std::make_shared<_TaskData>();
+            _data = new _TaskData();
             if (_params.usePinnedCore){
                 xTaskCreatePinnedToCore(
                     _taskWrapper<void, _ArgTypes...>, _params.name.c_str(), _params.stackSize,
@@ -289,7 +299,6 @@ public:
         _params = other._params;
         _task = other._task;
         _args = other._args;
-        _data = other._data;
         return *this;
     }
 
@@ -297,7 +306,9 @@ public:
      * @brief Copy the task to the heap, used internally
     */
     AsyncTask* copy() const{
-        return new AsyncTask(*this);
+        auto ptr = new AsyncTask(*this);
+        ptr->_data = _data;
+        return ptr;
     }
 };
 
@@ -324,9 +335,8 @@ AsyncTask<_ArgTypes...>::AsyncTask(const AsyncTask& other){
  * ## AsyncTask
  * 
  * A class that represents a task that can be run in the background.
+ * The task is a one-time task, it can't be run multiple times.
  * 
- * This is a specialization of the AsyncTask class, used when the task
- * doesn't take any arguments.
 */
 template <>
 class AsyncTask<> : public BaseAsyncTask{

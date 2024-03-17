@@ -1,29 +1,37 @@
 #pragma once
 
+#include <ctime>
 
 #include "namespaces.h"
 
 BEGIN_TASKS_NAMESPACE
 
-struct ScheduleLike{
-  virtual inline struct tm execute(struct tm* now){
-    return *now;
-  };
+enum class TimeUnit{
+  Seconds = 1,
+  Minutes = 2,
+  Hours = 3,
+  Days = 4,
 };
 
-// ## Simple Schedule
-// The simple schedule is a schedule that runs every `n` seconds.
-struct SimpleSchedule: public ScheduleLike{
-  int seconds;
+typedef struct tm (*executorFunc)(struct tm*); 
 
-  SimpleSchedule(int seconds = 60): seconds(seconds) {}
+struct ScheduleParams{
+  executorFunc getExecutor();
 
-  inline struct tm execute(struct tm* now){
-    struct tm next = *now;
-    next.tm_sec += seconds;
-    mktime(&next);
-    return next;
-  }
+  int amount;
+  TimeUnit unit;
+
+  ScheduleParams(int amount = 60, TimeUnit unit = TimeUnit::Seconds):
+    amount(amount), unit(unit) {}
+
+  /**
+   * Schedule the task to be executed every `amount` of `unit`
+  */
+  ScheduleParams& every(int amount, TimeUnit unit = TimeUnit::Seconds);
+
+  struct tm schedule(struct tm* now);
 };
+
+void updateTime(struct tm* now, int amount, TimeUnit unit);
 
 END_TASKS_NAMESPACE

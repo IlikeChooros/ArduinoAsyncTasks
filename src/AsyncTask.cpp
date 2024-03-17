@@ -7,25 +7,27 @@ BEGIN_TASKS_NAMESPACE
 using _TaskType = std::function<void()>;
 
 
-void BaseAsyncTask::resume(){
-    if(_data && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
-        vTaskResume(_data->_handle);
-        xSemaphoreGive(_data->_mutex);
-    }
-}
-
 void BaseAsyncTask::stop(){
     // The task can be deleted only in the `taskWrapper` function, so we must
     // send a signal to the task to stop it, and then delete it in the `taskWrapper`
-    if (_data && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
+    if (_data && _data->_signal == _TaskSignal::RUN && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
         _data->_signal = _TaskSignal::STOP;
         xSemaphoreGive(_data->_mutex);
     }
 }
 
 void BaseAsyncTask::pause(){
-    if (_data && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
+    if (_data && _data->_signal == _TaskSignal::RUN && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
         vTaskSuspend(_data->_handle);
+        _data->_signal = _TaskSignal::PAUSE;
+        xSemaphoreGive(_data->_mutex);
+    }
+}
+
+void BaseAsyncTask::resume(){
+    if(_data && _data->_signal == _TaskSignal::PAUSE && xSemaphoreTake(_data->_mutex, portMAX_DELAY) == pdTRUE){
+        vTaskResume(_data->_handle);
+        _data->_signal = _TaskSignal::RUN;
         xSemaphoreGive(_data->_mutex);
     }
 }
@@ -63,7 +65,7 @@ void AsyncTask<>::run(){
         return;
     }
     if (_task){
-        _data = std::make_shared<_TaskData>();
+        _data = new _TaskData();
         if(_params.usePinnedCore){
             xTaskCreatePinnedToCore(
                 _taskWrapper<void>, _params.name.c_str(), _params.stackSize,
@@ -91,12 +93,13 @@ void AsyncTask<>::_runTask(){
 AsyncTask<>& AsyncTask<>::operator=(const AsyncTask<>& other){
     _params = other._params;
     _task = other._task;
-    _data = other._data;
     return *this;
 }
 
 AsyncTask<>* AsyncTask<>::copy() const{
-    return new AsyncTask<>(*this);
+    auto ptr = new AsyncTask<>(*this);
+    ptr->_data = _data;
+    return ptr;
 }
 
 
