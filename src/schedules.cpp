@@ -2,51 +2,41 @@
 
 BEGIN_TASKS_NAMESPACE
 
-struct tm simpleExecutor(struct tm* now){
-  struct tm next = *now;
-  next.tm_sec += 60;
-  mktime(&next);
-  return next;
-}
-
-executorFunc ScheduleParams::getExecutor(){
-  return simpleExecutor;
-}
-
 ScheduleParams& ScheduleParams::every(int amount, TimeUnit unit){
   this->amount = amount;
   this->unit = unit;
   return *this;
 }
 
-tm ScheduleParams::schedule(struct tm* now){
-  struct tm next = *now;
-  updateTime(&next, amount, unit);
-  return next;
+using time_point = uint32_t;
+
+time_point ScheduleParams::schedule(time_point now){
+  return updateTime(now, amount, unit);
 }
 
-void updateTime(struct tm* now, int amount, TimeUnit unit){
-  int *ptr = nullptr;
+time_point updateTime(time_point now, int amount, TimeUnit unit){
+  using namespace std::chrono;
+  high_resolution_clock::duration multiplier;
   switch(unit){
+    case TimeUnit::Milliseconds:
+      multiplier = milliseconds(1);
+      break;
     case TimeUnit::Seconds:
-      ptr = &now->tm_sec;
+      multiplier = seconds(1);
       break;
     case TimeUnit::Minutes:
-      ptr = &now->tm_min;
+      multiplier = minutes(1);
       break;
     case TimeUnit::Hours:
-      ptr = &now->tm_hour;
+      multiplier = hours(1);
       break;
     case TimeUnit::Days:
-      ptr = &now->tm_mday;
+      multiplier = hours(24);
       break;
     default:
       break;
   }
-  if (ptr){
-    *ptr += amount;
-    mktime(now);
-  }
+  return now + (duration_cast<milliseconds>(amount * multiplier)).count();
 }
 
 END_TASKS_NAMESPACE

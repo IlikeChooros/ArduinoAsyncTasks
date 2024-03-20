@@ -212,7 +212,7 @@ class BaseAsyncTask{
 
     template <typename... _ArgTypes>
     friend TaskHandle_t _deleteTask(AsyncTask<_ArgTypes...>* p, bool kill);
-
+    friend class Scheduler;
 
     _TaskData *_data;
     TaskParams _params;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <queue>
 #include <list>
 
 #include "./AsyncTask.h"
@@ -8,19 +9,20 @@
 
 BEGIN_TASKS_NAMESPACE
 
+using _clock = uint32_t;
+
 struct _ScheduledTask{
   // task is the task to be executed
   AsyncTask<> task;
   // schedule for the task
   ScheduleParams schedule;
   // nextExecution is used to store the next time the task should be executed
-  tm nextExecution; 
+  _clock nextExecution;
 
-  _ScheduledTask(): 
-    task(AsyncTask<>()), schedule(ScheduleParams()) {}
+  _ScheduledTask(): _ScheduledTask(AsyncTask<>(), ScheduleParams()) {}
 
   _ScheduledTask(const AsyncTask<>& task, const ScheduleParams& schedule):
-    task(task), schedule(schedule) {}
+    task(task), schedule(schedule), nextExecution(0) {}
 
   _ScheduledTask(const _ScheduledTask& other):
     task(other.task), schedule(other.schedule), nextExecution(other.nextExecution) {}
@@ -52,14 +54,18 @@ class Scheduler
 {
   static int _instance_count;
   std::unique_ptr<_TaskData> _taskData;
-  tm *_now;
+  _clock _now;
   std::list<struct _ScheduledTask> _tasks;
   TaskParams _params;
-  bool _self_update;
 
-  double _executeTask(struct _ScheduledTask& task);
+  // execute the task, and return the time until the next task in seconds
+  static double _executeTask(Scheduler* scheduler, struct _ScheduledTask& task);
 
+  // task runner, main task for the `Scheduler` class
   static void _taskRunner(void* param);
+
+  // run the tasks, and return the time until the next task in milliseconds
+  static double _runLockedTask(Scheduler* scheduler);
 
   public:
   // Create a new scheduler
@@ -76,15 +82,8 @@ class Scheduler
   Scheduler& setParams(const TaskParams& params);
 
   /**
-   * @brief Set the scheduler to update the time itself, default is false
-   * @param self_update Whether the scheduler should update the time itself
-   * @return *this
-  */
-  Scheduler& setSelfTimeUpdate(bool self_update = false);
-
-  /**
    * @brief Add a task to the scheduler
-   * @param task The task to be added
+   * @param task The `AsyncTask` to be added
    * @param schedule The schedule of the task
    * @return *this
   */
@@ -92,25 +91,29 @@ class Scheduler
 
   /**
    * @brief Add a task to the scheduler
-   * @param task The task to be added
+   * @param task function task to be added
    * @param schedule The schedule of the task
    * @return *this
   */
   Scheduler& addTask(std::function<void(void)> task, const ScheduleParams& schedule);
 
   /**
-   * @brief Update the time of the scheduler
-   * @param now The current time
+   * @brief Add a task to the scheduler
+   * @param task function task to be added
+   * @param params The parameters of the task
+   * @param schedule The schedule of the task
    * @return *this
   */
-  Scheduler& updateNow(struct tm* now);
+  Scheduler& addTask(
+    std::function<void(void)> task, 
+    const TaskParams& params, 
+    const ScheduleParams& schedule
+  );
 
   /**
    * @brief Run the scheduler
-   * @param now The current time used for the schedules, 
-   * if not provided the current time will be used
   */
-  void run(struct tm* now = nullptr);
+  void run();
 
   /**
    * @brief Stop the scheduler, killing all the tasks
@@ -118,12 +121,12 @@ class Scheduler
   void stop();
 
   /**
-   * @brief Pause the scheduler, you can resume the scheduler using `resume()`
+   * @brief Pause the scheduler, the tasks will not be executed, doesn't affect already working tasks
   */
   void pause();
 
   /**
-   * @brief Resume the scheduler, after
+   * @brief Resume the scheduler, after it was paused
   */
   void resume();
 };

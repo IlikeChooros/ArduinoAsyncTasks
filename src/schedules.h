@@ -1,22 +1,28 @@
 #pragma once
 
 #include <ctime>
-
+#include <chrono>
 #include "namespaces.h"
 
 BEGIN_TASKS_NAMESPACE
 
+/*
+
+Time unit to be used in the `ScheduleParams` class.
+Implements the time units: Seconds, Minutes, Hours, Days
+
+*/
 enum class TimeUnit{
+  Milliseconds = 0,
   Seconds = 1,
   Minutes = 2,
   Hours = 3,
   Days = 4,
 };
 
-typedef struct tm (*executorFunc)(struct tm*); 
-
 struct ScheduleParams{
-  executorFunc getExecutor();
+
+  using time_point = uint32_t;
 
   int amount;
   TimeUnit unit;
@@ -29,9 +35,9 @@ struct ScheduleParams{
   */
   ScheduleParams& every(int amount, TimeUnit unit = TimeUnit::Seconds);
 
-  struct tm schedule(struct tm* now);
+  time_point schedule(time_point now);
 };
 
-void updateTime(struct tm* now, int amount, TimeUnit unit);
+uint32_t updateTime(uint32_t now, int amount, TimeUnit unit);
 
 END_TASKS_NAMESPACE

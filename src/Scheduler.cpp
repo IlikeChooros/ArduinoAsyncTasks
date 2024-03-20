@@ -4,15 +4,65 @@ BEGIN_TASKS_NAMESPACE
 
 int Scheduler::_instance_count = 0;
 
-// execute a task, and return the time until the next execution in seconds
-double Scheduler::_executeTask(struct _ScheduledTask& task){
-  if(difftime(mktime(_now), mktime(&task.nextExecution)) >= 0){
+bool _compareScheduledTask(const _ScheduledTask& a, const _ScheduledTask& b){
+  return a.nextExecution > b.nextExecution;
+}
+
+_clock getNow(){
+  return pdTICKS_TO_MS(xTaskGetTickCount());
+}
+
+time_t to_time_t(_clock time){
+  return time_t(time / 1000);
+}
+
+// execute a task, and return the time until the next execution in milliseconds
+double Scheduler::_executeTask(Scheduler* scheduler, struct _ScheduledTask& task){
+  if(task.nextExecution <= scheduler->_now){
+    
     // make a copy of the task, and run it
     AsyncTask<>(task.task).run();
-    task.nextExecution = task.schedule.schedule(_now);
+    // update the next execution time
+    task.nextExecution = task.schedule.schedule(scheduler->_now);
+
+    // time_t temp = to_time_t(task.nextExecution);
+    // struct tm next = *localtime(&temp);
+
+    // // Get the number of milliseconds
+    // auto milliseconds = task.nextExecution % 1000;
+    // Serial.println("Next execution " + String(task.task._params.name.c_str()) + ": " + String(next.tm_hour) + ":" + String(next.tm_min) + ":" + String(next.tm_sec) + ":" + String(milliseconds));
   } 
-  // return the time until the next execution in seconds
-  return difftime(mktime(&task.nextExecution), mktime(_now));
+  // return the time until the next execution in milliseconds
+  return task.nextExecution - scheduler->_now;
+}
+
+double Scheduler::_runLockedTask(Scheduler* scheduler){
+  double minTime = INT_MAX;
+
+  // time_t temp = to_time_t(scheduler->_now);
+  // struct tm* now = localtime(&temp);
+
+  // auto milliseconds = scheduler->_now % 1000;
+  // Serial.println("Now: " + String(now->tm_hour) + ":" + String(now->tm_min) + ":" + String(now->tm_sec) + ":" + String(milliseconds));
+
+  // lock the mutex
+  Lock lock(scheduler->_taskData->_mutex);
+
+  // iterate over all the tasks, and execute them
+  for(auto it = scheduler->_tasks.begin(); it != scheduler->_tasks.end(); it++){
+    minTime = std::min(minTime, _executeTask(scheduler, *it));
+  }
+
+  // sort the tasks by the next execution time
+  scheduler->_tasks.sort(_compareScheduledTask);
+
+  // Serial.println("Min time: " + String(minTime) + "\n");
+
+  // update the current time
+  scheduler->_now = getNow();
+
+  // return the time until the next task in milliseconds
+  return std::max(minTime, 10.0);
 }
 
 void Scheduler::_taskRunner(void* param){
@@ -20,43 +70,27 @@ void Scheduler::_taskRunner(void* param){
   
   Main task for the `Scheduler` class.
 
-  This task will run all the tasks in the `Scheduler`'s task list, and sleep
-  until the next task is ready to be executed.
+  This task will run all the tasks in the `Scheduler`'s task list, and will
+  sleep for the `frequency` time, and then run the tasks again.
+
+  The tasks will check if they should be executed
   
   */
   Scheduler* scheduler = static_cast<Scheduler*>(param);
+
+  scheduler->_now = getNow();
   
+  TickType_t frequency = pdMS_TO_TICKS(50);
+  TickType_t timer = xTaskGetTickCount();
+
   for(;;){
-    double minTime = INT_MAX;
-    auto startTicks = xTaskGetTickCount();
-    double sleepTime = 0;
-
-    {
-      // lock the mutex
-      Lock lock(scheduler->_taskData->_mutex);
-
-      // iterate over all the tasks and execute them
-      for(auto it = scheduler->_tasks.begin(); it != scheduler->_tasks.end(); it++){
-        minTime = std::min(minTime, scheduler->_executeTask(*it));
-      }
-
-      // get the time to sleep
-      sleepTime = minTime * 1000 / portTICK_PERIOD_MS;
-      // update the time if the scheduler is set to update it
-      if (scheduler->_self_update){
-        time_t now = mktime(scheduler->_now);
-        now += static_cast<time_t>((minTime + (xTaskGetTickCount() - startTicks) * portTICK_PERIOD_MS / 1000));
-        scheduler->_now = localtime(&now);
-      }
-    }
-    // sleep for the minimum time until the next task
-    vTaskDelay(sleepTime);
-    
+    vTaskDelayUntil(&timer, frequency);
+    _runLockedTask(scheduler);
   }
 }
 
 Scheduler::Scheduler():
-  _taskData(nullptr), _now(nullptr), _tasks(), _params(), _self_update(false) 
+  _taskData(nullptr), _now(), _tasks(), _params()
 {
   if(_instance_count == 0){
     _instance_count++;
@@ -66,10 +100,7 @@ Scheduler::Scheduler():
 }
 
 Scheduler::~Scheduler(){
-  if(_taskData){
-    Lock lock(_taskData->_mutex);
-    vTaskDelete(_taskData->_handle);
-  }
+  stop();
   _instance_count--;
 }
 
@@ -91,49 +122,19 @@ Scheduler& Scheduler::addTask(const AsyncTask<>& task, ScheduleParams schedule){
   return *this;
 }
 
+Scheduler& Scheduler::addTask(std::function<void(void)> task, const TaskParams& params, const ScheduleParams& schedule){
+  return addTask(AsyncTask<>(params, task), schedule);
+}
+
 Scheduler& Scheduler::addTask(std::function<void(void)> task, const ScheduleParams& schedule){
-  if (_taskData){
-    Lock lock(_taskData->_mutex);
-    _tasks.emplace_back(AsyncTask<>(task), schedule);
-  } else {
-    _tasks.emplace_back(AsyncTask<>(task), schedule);
-  }
-  return *this;
+  return addTask(AsyncTask<>(task), schedule);
 }
 
-Scheduler& Scheduler::updateNow(struct tm* now){
-  if (_taskData) {
-    Lock lock(_taskData->_mutex);
-    _now = now;
-  } else {
-    _now = now;
-  }
-  return *this;
-}
-
-Scheduler& Scheduler::setSelfTimeUpdate(bool self_update){
-  if(_taskData){
-    Lock lock(_taskData->_mutex);
-    _self_update = self_update;
-  } else {
-    _self_update = self_update;
-  }
-  return *this;
-}
-
-void Scheduler::run(struct tm* now){
+void Scheduler::run(){
 
   // if the scheduler is already running, return
   if (_taskData != nullptr){
     return;
-  }
-
-  if (now == nullptr){
-    time_t t = time(nullptr);
-    _now = localtime(&t);
-    _self_update = true;
-  } else {
-    _now = now;
   }
   
   _taskData.reset(new _TaskData());
