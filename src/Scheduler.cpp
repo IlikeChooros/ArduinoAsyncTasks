@@ -16,7 +16,7 @@ time_t to_time_t(_clock time){
   return time_t(time / 1000);
 }
 
-// execute a task, and return the time until the next execution in milliseconds
+// execute a task if this is the correct time, and return the time until the next execution in milliseconds
 double Scheduler::_executeTask(Scheduler* scheduler, struct _ScheduledTask& task){
   if(task.nextExecution <= scheduler->_now){
     
@@ -72,14 +72,15 @@ void Scheduler::_taskRunner(void* param){
 
   This task will run all the tasks in the `Scheduler`'s task list, and will
   sleep for the `frequency` time, and then run the tasks again.
-
-  The tasks will check if they should be executed
+  Basically, this is the main loop of the `Scheduler` class, where all the tasks
+  are executed.
   
   */
   Scheduler* scheduler = static_cast<Scheduler*>(param);
 
   scheduler->_now = getNow();
   
+  // The frequency of the task runner, using 50ms as the default
   TickType_t frequency = pdMS_TO_TICKS(50);
   TickType_t timer = xTaskGetTickCount();
 
@@ -138,6 +139,8 @@ void Scheduler::run(){
   }
   
   _taskData.reset(new _TaskData());
+
+  _now = getNow();
   
   if(_params.usePinnedCore){
     xTaskCreatePinnedToCore(
@@ -150,8 +153,12 @@ void Scheduler::run(){
   }
 }
 
+void Scheduler::execute(){
+  _runLockedTask(this);
+}
+
 void Scheduler::stop(){
-  if (_taskData == nullptr){
+  if (_taskData == nullptr || _taskData->_signal != _TaskSignal::RUN){
     return;
   }
   Lock lock(_taskData->_mutex);

@@ -111,17 +111,24 @@ class Scheduler
   );
 
   /**
-   * @brief Run the scheduler
+   * @brief Run the scheduler asynchronusly, and start executing the tasks
   */
   void run();
 
   /**
-   * @brief Stop the scheduler, killing all the tasks
+   * @brief Same as `run()`, but executes in the current thread,
+   *  should be called frequently
+  */
+  void execute();
+
+  /**
+   * @brief Stop the scheduler, killing all the tasks, must call `run` to start again
   */
   void stop();
 
   /**
-   * @brief Pause the scheduler, the tasks will not be executed, doesn't affect already working tasks
+   * @brief Pause the scheduler, the tasks will not be executed, 
+   * doesn't affect already working tasks
   */
   void pause();
 
